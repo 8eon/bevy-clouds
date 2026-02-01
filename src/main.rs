@@ -1,24 +1,58 @@
 use bevy::{
     prelude::*,
-    render::render_resource::{AsBindGroup, ShaderRef, TextureDimension, TextureFormat},
+    input::mouse::MouseMotion,
+    render::render_resource::{AsBindGroup, ShaderRef, ShaderType},
 };
-use rand::Rng;
+use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(EguiPlugin)
         .add_plugins(MaterialPlugin::<CloudMaterial>::default())
+        .init_resource::<CloudSettings>()
         .add_systems(Startup, setup)
+        .add_systems(Update, (camera_control_system, ui_system, update_material_system))
         .run();
+}
+
+#[derive(Resource)]
+pub struct CloudSettings {
+    pub color: Color,
+    pub density_multiplier: f32,
+    pub threshold: f32,
+    pub absorption: f32,
+    pub steps: u32,
+}
+
+impl Default for CloudSettings {
+    fn default() -> Self {
+        Self {
+            color: Color::srgb(0.9, 0.9, 1.0),
+            density_multiplier: 2.0,
+            threshold: 0.2,
+            absorption: 3.0,
+            steps: 16,
+        }
+    }
+}
+
+#[derive(Component)]
+struct OrbitCamera {
+    pub center: Vec3,
+    pub distance: f32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct CloudMaterial {
     #[uniform(0)]
+    pub data: CloudMaterialUniform,
+}
+
+#[derive(ShaderType, Debug, Clone)]
+pub struct CloudMaterialUniform {
     pub color: LinearRgba,
-    #[texture(1, dimension = "3d")]
-    #[sampler(2)]
-    pub noise_texture: Handle<Image>,
+    pub settings: Vec4, // x: density, y: threshold, z: absorption, w: steps
 }
 
 impl Material for CloudMaterial {
@@ -34,80 +68,22 @@ impl Material for CloudMaterial {
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
-    mut images: ResMut<Assets<Image>>,
+    settings: Res<CloudSettings>,
 ) {
-    // --- 3D Worley Noise Generation ---
-    // Worley noise (cellular noise) gives that "billowy" look.
-    let size = 32; // Reduced resolution for performance and RAM
-    let mut data = Vec::with_capacity(size * size * size);
-    
-    // Generate random feature points for Worley noise
-    let num_points = 16;
-    let mut rng = rand::thread_rng();
-    let mut points = Vec::new();
-    for _ in 0..num_points {
-        points.push(Vec3::new(
-            rng.gen_range(0.0..1.0),
-            rng.gen_range(0.0..1.0),
-            rng.gen_range(0.0..1.0),
-        ));
-    }
-
-    for z in 0..size {
-        let fz = z as f32 / size as f32;
-        for y in 0..size {
-            let fy = y as f32 / size as f32;
-            for x in 0..size {
-                let fx = x as f32 / size as f32;
-                let p = Vec3::new(fx, fy, fz);
-                
-                // Find distance to closest point (with simple wrapping for tiling)
-                let mut min_dist = 1.0;
-                for point in &points {
-                    // Simple distance check (not perfectly tiling yet but good for a start)
-                    let dist = p.distance(*point);
-                    if dist < min_dist {
-                        min_dist = dist;
-                    }
-                }
-                
-                // Invert and scale for cloud density (1.0 at center, 0.0 at edges)
-                let val = (1.0 - (min_dist * 2.5).min(1.0)) * 255.0;
-                data.push(val as u8);
-            }
-        }
-    }
-
-    let image = Image::new(
-        bevy::render::render_resource::Extent3d {
-            width: size as u32,
-            height: size as u32,
-            depth_or_array_layers: size as u32,
-        },
-        TextureDimension::D3,
-        data,
-        TextureFormat::R8Unorm,
-        bevy::render::render_asset::RenderAssetUsages::default(),
-    );
-    let noise_handle = images.add(image);
-
-    // Ground plane
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(10.0, 10.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.3, 0.5, 0.3),
-            ..default()
-        })),
-    ));
-
     // Cloud Cube
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(2.0, 2.0, 2.0))),
         MeshMaterial3d(cloud_materials.add(CloudMaterial {
-            color: LinearRgba::from(Color::srgb(0.9, 0.9, 1.0)),
-            noise_texture: noise_handle,
+            data: CloudMaterialUniform {
+                color: LinearRgba::from(settings.color),
+                settings: Vec4::new(
+                    settings.density_multiplier,
+                    settings.threshold,
+                    settings.absorption,
+                    settings.steps as f32,
+                ),
+            },
         })),
         Transform::from_xyz(0.0, 1.0, 0.0),
     ));
@@ -123,9 +99,79 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 
-    // Camera
+    // Simple Orbit Camera
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(-3.0, 3.0, 6.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
+        OrbitCamera {
+            center: Vec3::new(0.0, 1.0, 0.0),
+            distance: 7.0,
+        },
     ));
+}
+
+fn ui_system(
+    mut contexts: EguiContexts,
+    mut settings: ResMut<CloudSettings>,
+) {
+    egui::Window::new("Cloud Settings").show(contexts.ctx_mut(), |ui| {
+        ui.add(egui::Slider::new(&mut settings.density_multiplier, 0.0..=10.0).text("Density"));
+        ui.add(egui::Slider::new(&mut settings.threshold, 0.0..=1.0).text("Threshold"));
+        ui.add(egui::Slider::new(&mut settings.absorption, 0.0..=10.0).text("Absorption"));
+        
+        let mut steps_f32 = settings.steps as f32;
+        ui.add(egui::Slider::new(&mut steps_f32, 4.0..=64.0).text("Steps"));
+        settings.steps = steps_f32 as u32;
+
+        if ui.button("Reset").clicked() {
+            *settings = CloudSettings::default();
+        }
+    });
+}
+
+fn update_material_system(
+    settings: Res<CloudSettings>,
+    mut materials: ResMut<Assets<CloudMaterial>>,
+) {
+    for (_, material) in materials.iter_mut() {
+        material.data.color = LinearRgba::from(settings.color);
+        material.data.settings = Vec4::new(
+            settings.density_multiplier,
+            settings.threshold,
+            settings.absorption,
+            settings.steps as f32,
+        );
+    }
+}
+
+fn camera_control_system(
+    buttons: Res<ButtonInput<MouseButton>>,
+    mut mouse_motion_events: EventReader<MouseMotion>,
+    mut query: Query<(&mut OrbitCamera, &mut Transform)>,
+    mut contexts: EguiContexts,
+) {
+    if contexts.ctx_mut().is_pointer_over_area() {
+        return;
+    }
+
+    let (orbit, mut transform) = query.single_mut();
+    
+    if buttons.pressed(MouseButton::Left) {
+        for event in mouse_motion_events.read() {
+            let delta_x = event.delta.x * 0.005;
+            let delta_y = event.delta.y * 0.005;
+            
+            let mut angles = transform.rotation.to_euler(EulerRot::YXZ);
+            angles.0 -= delta_x;
+            angles.1 -= delta_y;
+            angles.1 = angles.1.clamp(-1.5, 1.5);
+            
+            transform.rotation = Quat::from_euler(EulerRot::YXZ, angles.0, angles.1, 0.0);
+        }
+    } else {
+        mouse_motion_events.clear();
+    }
+    
+    let rot_matrix = Mat3::from_quat(transform.rotation);
+    transform.translation = orbit.center + rot_matrix.mul_vec3(Vec3::new(0.0, 0.0, orbit.distance));
 }

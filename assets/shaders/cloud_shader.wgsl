@@ -5,14 +5,11 @@
 
 struct CloudMaterial {
     color: vec4<f32>,
+    settings: vec4<f32>, // x: density, y: threshold, z: absorption, w: steps
 };
 
 @group(2) @binding(0)
 var<uniform> material: CloudMaterial;
-@group(2) @binding(1)
-var noise_texture: texture_3d<f32>;
-@group(2) @binding(2)
-var noise_sampler: sampler;
 
 struct Vertex {
     @location(0) position: vec3<f32>,
@@ -26,6 +23,31 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.world_position = world_pos4;
     out.position = view_bindings::view.clip_from_world * world_pos4;
     return out;
+}
+
+fn hash33(p: vec3<f32>) -> vec3<f32> {
+    var p3 = fract(p * vec3<f32>(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yxz + 33.33);
+    return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+
+fn worley(p: vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    var min_dist = 1.0;
+    
+    for (var z = -1; z <= 1; z++) {
+        for (var y = -1; y <= 1; y++) {
+            for (var x = -1; x <= 1; x++) {
+                let neighbor = vec3<f32>(f32(x), f32(y), f32(z));
+                let point = hash33(i + neighbor);
+                let diff = neighbor + point - f;
+                let dist = length(diff);
+                min_dist = min(min_dist, dist);
+            }
+        }
+    }
+    return min_dist;
 }
 
 fn ray_box_intersection(ray_origin: vec3<f32>, ray_dir: vec3<f32>, box_min: vec3<f32>, box_max: vec3<f32>) -> vec2<f32> {
@@ -58,40 +80,35 @@ fn fragment(
         var total_transmittance = 1.0;
         var final_color = vec3<f32>(0.0);
         
-        // --- PERFORMANCE OPTIMIZATION ---
-        // Reduced steps back to 32 as requested
-        let steps = 32; 
+        let density_multiplier = material.settings.x;
+        let threshold = material.settings.y;
+        let absorption = material.settings.z;
+        let steps = i32(material.settings.w); 
+
         let step_size = (t_exit - t_entry) / f32(steps);
-        let absorption = 3.0; // Adjusted for lower steps
 
         for (var i = 0; i < steps; i = i + 1) {
-            let uv = (p - box_min) / (box_max - box_min);
-            let noise_val = textureSampleLevel(noise_texture, noise_sampler, uv, 0.0).r;
-            
-            // Worley noise thresholding
-            let density = max(noise_val - 0.1, 0.0) * 2.0;
+            let noise_val = 1.0 - worley(p * 1.5);
+            let density = max(noise_val - threshold, 0.0) * density_multiplier;
             
             if (density > 0.0) {
                 let step_transmittance = exp(-density * step_size * absorption);
-                
                 let height_factor = (p.y - box_min.y) / (box_max.y - box_min.y);
-                let light = mix(0.5, 1.0, height_factor);
-                
+                let light = mix(0.6, 1.0, height_factor);
                 let ambient = material.color.rgb * light;
                 
                 final_color += total_transmittance * (1.0 - step_transmittance) * ambient;
                 total_transmittance *= step_transmittance;
             }
 
-            if (total_transmittance <= 0.05) { // Early exit threshold
+            if (total_transmittance <= 0.1) {
                 break;
             }
-            
             p += ray_dir * step_size;
         }
 
         return vec4<f32>(final_color, 1.0 - total_transmittance);
     } else {
-        discard;
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 }
