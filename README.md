@@ -8,6 +8,8 @@ A volumetric cloud rendering system built with the **Bevy Engine** and **WGSL**,
 
 ## Overview
 
+> **Note**: This project is currently in an early **experimental state**. The implementation is a work-in-progress and is provided "as-is" for research and demonstration purposes. Performance and stability may vary across different hardware configurations.
+
 This project implements a real-time volumetric cloud system based on the mathematical principles outlined in Victor Wang's 2005 Cornell research, *"Physically Based Real-Time Modeling and Rendering of Volumetric Clouds"*. 
 
 The system utilizes **Raymarching** and **Shader-side Worley Noise** to generate organic cloud structures. By calculating noise procedurally within the shader, the implementation maintains a minimal memory footprint while providing high visual detail across the volume.
