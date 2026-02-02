@@ -26,7 +26,7 @@ The system utilizes **Raymarching** and **Shader-side Worley Noise** to generate
 
 The rendering loop approximates the standard volume rendering equation:
 
-\[ L(p, \omega) = \int_{0}^{D} e^{-\tau(s)} \cdot \rho(s) \cdot L_{in}(s) \, ds \]
+$$ L(p, \omega) = \int_{0}^{D} e^{-\tau(s)} \cdot \rho(s) \cdot L_{in}(s) \, ds $$
 
 Where:
 *   **$\tau(s)$**: Optical depth calculated via Beer's Law.
