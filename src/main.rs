@@ -7,11 +7,13 @@ use bevy::{
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use bevy_atmosphere::prelude::*;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin)
+        .add_plugins(AtmospherePlugin)
         .add_plugins(MaterialPlugin::<CloudMaterial>::default())
         .init_resource::<CloudSettings>()
         .add_systems(Startup, setup)
@@ -28,7 +30,7 @@ pub struct CloudSettings {
     pub steps: u32,
     pub seed: u32,
     pub frequency: f32,
-    pub cell_count: u32, // New setting for cell density
+    pub cell_count: u32,
     pub noise_handle: Handle<Image>,
     pub needs_rebuild: bool,
 }
@@ -102,6 +104,7 @@ fn setup(
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
     settings: Res<CloudSettings>,
 ) {
+    // Cloud Cube
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(2.0, 2.0, 2.0))),
         MeshMaterial3d(cloud_materials.add(CloudMaterial {
@@ -119,16 +122,19 @@ fn setup(
         Transform::from_xyz(0.0, 1.0, 0.0),
     ));
 
+    // Light (Sun)
     commands.spawn((
-        PointLight {
+        DirectionalLight {
             shadows_enabled: true,
-            range: 20.0,
-            intensity: 5000.0,
             ..default()
         },
-        Transform::from_xyz(4.0, 8.0, 4.0),
+        Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+        AtmosphereSun {
+            intensity: 10.0,
+        },
     ));
 
+    // Camera with Atmosphere
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(-3.0, 3.0, 6.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
@@ -136,6 +142,7 @@ fn setup(
             center: Vec3::new(0.0, 1.0, 0.0),
             distance: 7.0,
         },
+        AtmosphereCamera::default(),
     ));
 }
 
@@ -210,7 +217,6 @@ fn update_material_system(
                         
                         let mut min_dist = 10.0;
                         for point in &points {
-                            // Simple tiling logic for better billows
                             for oz in -1..=1 {
                                 for oy in -1..=1 {
                                     for ox in -1..=1 {
