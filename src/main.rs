@@ -129,9 +129,6 @@ fn setup(
             ..default()
         },
         Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-        AtmosphereSun {
-            intensity: 10.0,
-        },
     ));
 
     // Camera with Atmosphere
