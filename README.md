@@ -60,7 +60,7 @@ cargo run --release
 - [x] Initial Raymarching Pipeline
 - [x] Shader-side Worley Noise
 - [x] Runtime Parameter Tuning
-- [ ] `bevy_atmosphere` Integration (Procedural Sky)
+- [x] `bevy_atmosphere` Integration (Procedural Sky)
 - [ ] Henyey-Greenstein Phase Function (Sun Scattering)
 - [ ] Temporal Super-Sampling
 
